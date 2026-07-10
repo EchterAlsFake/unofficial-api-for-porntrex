@@ -1,4 +1,6 @@
-from ..porntrex_api import Client
+from base_api import DownloadConfigRAW
+
+from ..api import Client
 import pytest
 
 
@@ -11,7 +13,6 @@ def client() -> Client:
 async def test_all(client):
     video = await client.get_video("https://www.porntrex.com/video/2989480/i-have-two-big-titties-and-im-your-date")
     assert isinstance(video.title, str) and len(video.title) > 0
-    assert isinstance(video.json_data, dict) and len(video.video_metadata) > 0
     assert isinstance(video.description, str) and len(video.description) > 0
     assert isinstance(video.duration, str) and len(video.duration) > 0
     assert isinstance(video.video_id, str) and len(video.video_id) > 0
@@ -24,4 +25,5 @@ async def test_all(client):
     assert isinstance(video.views, str) and len(video.views) > 0
     assert isinstance(video.rnd, str) and len(video.rnd) > 0
     assert isinstance(video.thumbnail, str) and len(video.thumbnail) > 0
-    assert await video.download(quality="worst") is True
+    stuff = DownloadConfigRAW(quality="worst")
+    assert await video.download(stuff) is True

@@ -2,9 +2,6 @@ from .. import Client, Video
 from base_api.base import BaseCore
 import pytest
 
-
-
-
 @pytest.mark.asyncio
 async def test_all():
     core = BaseCore()
@@ -19,9 +16,8 @@ async def test_all():
 
     idx = 0
     async for video in model.videos():
-        await video.init()
         idx += 1
-        assert isinstance(video.title, str)
+        assert isinstance(video.video.title, str)
 
         if idx == 5:
             break

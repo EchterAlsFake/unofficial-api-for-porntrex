@@ -3,9 +3,9 @@ requires = ["uv_build>=0.9.18,<0.10.0"]
 build-backend = "uv_build"
 
 [project]
-name = "porntrex_api"
-version = "1.5.1"
-description = "A Python API for the Porn Site porntrex.com"
+name = "unofficial-api-for-porntrex"
+version = "1.6"
+description = "An asynchronous Python API wrapper and scraper for porntrex.com"
 readme = { file = "README.md", content-type = "text/markdown" }
 requires-python = ">=3.12"
 license = "LGPL-3.0-only"
@@ -13,20 +13,37 @@ license-files = ["LICENSE"]
 authors = [
     { name = "Johannes Habel", email = "EchterAlsFake@proton.me" }
 ]
+keywords = [
+    "api",
+    "scraper",
+    "async",
+    "asyncio",
+    "video-downloader",
+    "selectolax",
+    "curl-cffi",
+    "porntrex"
+]
 dependencies = [
-    "bs4",
-    "eaf_base_api",
-    "json5"
+    "eaf-base-api",
+    "json5",
+    "selectolax>=0.4.10",
 ]
 classifiers = [
-    "Programming Language :: Python",
+    "Development Status :: 5 - Production/Stable",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: GNU Lesser General Public License v3 (LGPLv3)",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Internet :: WWW/HTTP",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Topic :: Multimedia :: Video"
 ]
 
-[project.optional-dependencies]
-full = ["lxml"] # H2 for HTTP 2.0 support, LXML for faster parsing speed, though optional :)
-
 [project.urls]
-Homepage = "https://github.com/EchterAlsFake/porntrex_api"
+Homepage = "https://github.com/EchterAlsFake/unofficial-api-for-porntrex"
+Repository = "https://github.com/EchterAlsFake/unofficial-api-for-porntrex"
+"Bug Tracker" = "https://github.com/EchterAlsFake/unofficial-api-for-porntrex/issues"
 
 [tool.setuptools]
 packages = { find = {} }

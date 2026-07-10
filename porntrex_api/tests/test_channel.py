@@ -18,7 +18,7 @@ async def test_all():
     idx = 0
     async for video in model.videos():
         idx += 1
-        assert isinstance(video.title, str)
+        assert isinstance(video.video.title, str)
 
         if idx >= 5:
             break
