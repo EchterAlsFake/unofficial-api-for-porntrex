@@ -1,18 +1,16 @@
+import copy
 import os
 import re
 import json5
 import asyncio
 import logging
-import traceback
-import threading
 
-from base_api import DownloadConfigRAW, ScrapeResult
 from curl_cffi import Response
-from functools import cached_property
-from dataclasses import dataclass, fields
 from typing import AsyncGenerator
+from dataclasses import dataclass, fields
 from selectolax.lexbor import LexborHTMLParser
-from base_api.base import BaseCore, Helper, BaseMedia
+from base_api import BaseCore, Helper, BaseMedia
+from base_api import DownloadConfigRAW, ScrapeResult
 from base_api.modules.static_functions import choose_quality_from_list,  normalize_quality_value
 from base_api.modules.errors import InvalidProxy, UnknownError, BotProtectionDetected, NetworkRequestError, ResourceGone
 
@@ -22,8 +20,13 @@ from porntrex_api.modules.consts import (PATTERN_MP4, PATTERN_URL_KEY, PATTERN_R
                                          PATTERN_RESOLUTION_TEXT, extractor_html)
 from porntrex_api.modules.type_hints import on_error_hint
 
+
+logger = logging.getLogger("Porntrex API")
+logger.addHandler(logging.NullHandler())
+
+
 async def on_error(url: str, error: Exception, attempt: int) -> bool:
-    print(f"URL: {url}, ERROR: {error}, Attempt: {attempt}")
+    logger.error(f"URL: {url}, ERROR: {error}, Attempt: {attempt}")
 
     if isinstance(error, ResourceGone):
         return False
@@ -84,7 +87,7 @@ class Video(BaseMedia):
         html_content = await get_html_content(core=self.core, url=self.url)
         assert isinstance(html_content, str)
         data: dict = await asyncio.to_thread(self._extract_data, html_content)
-        allowed_fields = [field.name for field in fields(self)]
+        allowed_fields = {field.name for field in fields(self)}
         for key, value in data.items():
             if key in allowed_fields:
                 setattr(self, key, value)
@@ -203,7 +206,7 @@ class Video(BaseMedia):
         return urls
 
     async def download(self, configuration: DownloadConfigRAW) -> bool:
-        config = configuration
+        config = copy.deepcopy(configuration)
         cdn_urls = self.direct_download_urls
         quals = self.video_qualities  # e.g., ["480", "720", "1080", "2160"]
 
@@ -241,7 +244,7 @@ class ChannelModelHelper(BaseMedia):
         html_content = await get_html_content(core=self.core, url=self.url)
         assert isinstance(html_content, str)
         data: dict = await asyncio.to_thread(self._extract_html, html_content)
-        allowed_fields = [field.name for field in fields(self)]
+        allowed_fields = {field.name for field in fields(self)}
         for key, value in data.items():
             if key in allowed_fields:
                 setattr(self, key, value)
@@ -282,7 +285,8 @@ class ChannelModelHelper(BaseMedia):
                      on_page_error: on_error_hint = None,
                      keep_original_order: bool = False,
                      load_html: bool = False) -> AsyncGenerator[ScrapeResult, None]:
-        page_urls = [f"{self.url}?mode=async&function=get_block&block_id=list_videos_common_videos_list_norm&sort_by=post_date&from={page:02d}&_=1761740123131" for page in range(pages)]
+        url = self.url
+        page_urls = [f"{url}?mode=async&function=get_block&block_id=list_videos_common_videos_list_norm&sort_by=post_date&from={page:02d}&_=1761740123131" for page in range(pages)]
         videos_concurrency = videos_concurrency or self.core.configuration.videos_concurrency
         pages_concurrency = pages_concurrency or self.core.configuration.pages_concurrency
         assert videos_concurrency and pages_concurrency

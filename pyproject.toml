@@ -26,7 +26,7 @@ keywords = [
 dependencies = [
     "eaf-base-api",
     "json5",
-    "selectolax>=0.4.10",
+    "selectolax",
 ]
 classifiers = [
     "Development Status :: 5 - Production/Stable",
@@ -44,6 +44,9 @@ classifiers = [
 Homepage = "https://github.com/EchterAlsFake/unofficial-api-for-porntrex"
 Repository = "https://github.com/EchterAlsFake/unofficial-api-for-porntrex"
 "Bug Tracker" = "https://github.com/EchterAlsFake/unofficial-api-for-porntrex/issues"
+"Support me on Ko-Fi" = "https://ko-fi.com/EchterAlsFake"
+"Donate via PayPal" = "https://paypal.me/EchterAlsFake"
+"Donate via Crypto" = "https://nowpayments.io/donation/EchterAlsFake"
 
 [tool.setuptools]
 packages = { find = {} }
