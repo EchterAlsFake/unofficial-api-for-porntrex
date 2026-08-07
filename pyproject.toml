@@ -24,7 +24,7 @@ keywords = [
     "porntrex"
 ]
 dependencies = [
-    "eaf-base-api",
+    "eaf-base-api>=4.0.0",
     "json5",
     "selectolax",
 ]

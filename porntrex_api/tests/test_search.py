@@ -15,6 +15,6 @@ async def test_all():
     async for video in search:
 
         idx += 1
-        assert isinstance(video.video.title, str)
+        assert isinstance(video.unwrap().title, str)
         if idx == 5:
             break

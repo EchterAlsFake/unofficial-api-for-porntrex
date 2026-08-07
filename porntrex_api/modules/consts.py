@@ -55,6 +55,7 @@ def extractor_html(content: str) -> list[dict[str, Any]]:
         if date_tag:
             video_data["publish_date"] = date_tag.text(strip=True)
 
-        extracted_videos.append(video_data)
+        if video_data.get("url"):
+            extracted_videos.append(video_data)
 
     return extracted_videos
