@@ -4,7 +4,7 @@ build-backend = "uv_build"
 
 [project]
 name = "unofficial-api-for-porntrex"
-version = "1.7"
+version = "1.8"
 description = "An asynchronous Python API wrapper and scraper for porntrex.com"
 readme = { file = "README.md", content-type = "text/markdown" }
 requires-python = ">=3.12"
@@ -54,3 +54,4 @@ packages = { find = {} }
 [tool.uv.build-backend]
 module-name = "porntrex_api"
 module-root = ""
+

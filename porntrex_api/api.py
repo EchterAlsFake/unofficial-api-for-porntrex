@@ -48,8 +48,8 @@ logger.addHandler(logging.NullHandler())
 def make_iterator_config() -> IteratorConfig:
     return IteratorConfig(
         load_specific_sources=("html",),
-        item_retry=RetryPolicy(max_attempts=3),
-        page_retry=RetryPolicy(max_attempts=3),
+        item_retry=None,
+        page_retry=None,
         page_error_mode=ErrorMode.SKIP,
         item_error_handler=None,
         page_error_handler=None,
@@ -315,7 +315,7 @@ class ChannelModelHelper(BaseMedia):
         self,
         pages: int = 2,
         iterator_config: IteratorConfig | None = None,
-    ) -> AsyncGenerator[ScrapeResult, None]:
+    ) -> AsyncGenerator[ScrapeResult[Video], None]:
         url = self.url
         page_urls = [f"{url}?mode=async&function=get_block&block_id=list_videos_common_videos_list_norm&sort_by=post_date&from={page:02d}&_=1761740123131" for page in range(pages)]
         helper = Helper(core=self.core, constructor=Video)
@@ -371,7 +371,7 @@ class Client:
         query: str,
         pages: int = 2,
         iterator_config: IteratorConfig | None = None,
-    ) -> AsyncGenerator[ScrapeResult, None]:
+    ) -> AsyncGenerator[ScrapeResult[Video], None]:
 
         page_urls = [f"https://www.porntrex.com/search/{query}/?mode=async&function=get_block&block_id=list_videos_videos&q={query}&category_ids=&sort_by=relevance&from={page:02d}&_=1761771312451" for page in range(pages)]
         helper = Helper(core=self.core, constructor=Video)
