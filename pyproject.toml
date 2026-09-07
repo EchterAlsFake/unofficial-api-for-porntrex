@@ -48,6 +48,9 @@ Repository = "https://github.com/EchterAlsFake/unofficial-api-for-porntrex"
 "Donate via PayPal" = "https://paypal.me/EchterAlsFake"
 "Donate via Crypto" = "https://nowpayments.io/donation/EchterAlsFake"
 
+[project.scripts]
+porntrex_api = "porntrex_api.api:main"
+
 [tool.setuptools]
 packages = { find = {} }
 
@@ -55,3 +58,5 @@ packages = { find = {} }
 module-name = "porntrex_api"
 module-root = ""
 
+[tool.uv.sources]
+eaf-base-api = { path = "../eaf_base_api", editable = true }

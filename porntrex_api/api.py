@@ -24,8 +24,13 @@ from base_api import (
     ScrapeErrorContext,
     ScrapeResult,
     media_field,
+    make_iterator_config,
+    is_resource_gone,
+    default_on_error,
+    scrape_stream,
 )
-from base_api.modules.static_functions import choose_quality_from_list,  normalize_quality_value
+import argparse
+from base_api.modules.static_functions import choose_quality_from_list, normalize_quality_value, str_to_bool
 from base_api.modules.errors import (
     BotProtectionDetected,
     HTTPStatusError,
@@ -44,40 +49,9 @@ from porntrex_api.modules.consts import (PATTERN_MP4, PATTERN_URL_KEY, PATTERN_R
 logger = logging.getLogger("Porntrex API")
 logger.addHandler(logging.NullHandler())
 
+_contains_resource_gone = is_resource_gone
+on_error = default_on_error
 
-def make_iterator_config() -> IteratorConfig:
-    return IteratorConfig(
-        load_specific_sources=("html",),
-        item_retry=None,
-        page_retry=None,
-        page_error_mode=ErrorMode.SKIP,
-        item_error_handler=None,
-        page_error_handler=None,
-    )
-
-
-def _contains_resource_gone(error: BaseException) -> bool:
-    if isinstance(error, ResourceGone):
-        return True
-    if isinstance(error, MediaLoadError):
-        return _contains_resource_gone(error.original_error)
-    if isinstance(error, MediaLoadErrors):
-        return any(_contains_resource_gone(item) for item in error.errors)
-    return False
-
-
-async def on_error(context: ScrapeErrorContext) -> ErrorAction:
-    logger.error(
-        "URL: %s, ERROR: %s, Attempt: %s",
-        context.url,
-        context.error,
-        context.attempt,
-    )
-
-    if _contains_resource_gone(context.error):
-        return ErrorAction.SKIP
-
-    return ErrorAction.RETRY
 
 
 async def get_html_content(core: BaseCore, url: str) -> str:
@@ -311,26 +285,20 @@ class ChannelModelHelper(BaseMedia):
             "thumbnail": thumbnail,
         }
 
-    async def videos(
+    def videos(
         self,
         pages: int = 2,
         iterator_config: IteratorConfig | None = None,
     ) -> AsyncGenerator[ScrapeResult[Video], None]:
         url = self.url
         page_urls = [f"{url}?mode=async&function=get_block&block_id=list_videos_common_videos_list_norm&sort_by=post_date&from={page:02d}&_=1761740123131" for page in range(pages)]
-        helper = Helper(core=self.core, constructor=Video)
-
-        if iterator_config is None:
-            iterator_config = make_iterator_config()
-
-        stream = helper.iterator(
+        return scrape_stream(
+            core=self.core,
+            constructor=Video,
             target_page_urls=page_urls,
             item_extractor=extractor_html,
             iterator_config=iterator_config,
         )
-        async with stream:
-            async for result in stream:
-                yield result
 
 
 @dataclass(kw_only=True, slots=True)
@@ -344,7 +312,9 @@ class Channel(ChannelModelHelper):
 
 
 class Client:
-    def __init__(self, core: BaseCore = BaseCore()):
+    def __init__(self, core: BaseCore | None = None):
+        if core is None:
+            core = BaseCore()
         self.core = core or BaseCore()
         self.core.initialize_session()
 
@@ -366,24 +336,71 @@ class Client:
             await channel.load_sources("html")
         return channel
 
-    async def search(
+    def search(
         self,
         query: str,
         pages: int = 2,
         iterator_config: IteratorConfig | None = None,
     ) -> AsyncGenerator[ScrapeResult[Video], None]:
-
         page_urls = [f"https://www.porntrex.com/search/{query}/?mode=async&function=get_block&block_id=list_videos_videos&q={query}&category_ids=&sort_by=relevance&from={page:02d}&_=1761771312451" for page in range(pages)]
-        helper = Helper(core=self.core, constructor=Video)
-
-        if iterator_config is None:
-            iterator_config = make_iterator_config()
-
-        stream = helper.iterator(
+        return scrape_stream(
+            core=self.core,
+            constructor=Video,
             target_page_urls=page_urls,
             item_extractor=extractor_html,
             iterator_config=iterator_config,
         )
-        async with stream:
-            async for result in stream:
-                yield result
+
+
+
+def create_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description="PornTrex API Command Line Interface")
+    parser.add_argument("--download", metavar="URL", type=str, help="URL to download from")
+    parser.add_argument("--quality", metavar="best|half|worst", type=str, default="best", help="The video quality (best, half, worst)")
+    parser.add_argument("--file", metavar="FILE", type=str, help="(Optional) Specify a file with URLs (separated with new lines)")
+    parser.add_argument("--output", metavar="DIR", type=str, required=True, help="The output path (with filename or directory)")
+    parser.add_argument("--no-title", metavar="True,False", type=str, nargs="?", const="True", default="False",
+                        help="Whether to apply video title automatically to output path or not")
+    return parser
+
+
+async def run_main(args_list: list[str] | None = None):
+    parser = create_parser()
+    args = parser.parse_args(args_list)
+    no_title = str_to_bool(args.no_title) if isinstance(args.no_title, str) else bool(args.no_title)
+    config = DownloadConfigRAW(quality=args.quality, path=args.output, no_title=no_title)
+
+    urls: list[str] = []
+    if args.download:
+        urls.append(args.download)
+    if args.file:
+        with open(args.file, "r") as f:
+            urls.extend([line.strip() for line in f if line.strip()])
+
+    if not urls:
+        parser.print_help()
+        return
+
+    client = Client()
+    for url in urls:
+        print(f"Fetching video information for: {url}")
+        try:
+            video = await client.get_video(url, load_html=True)
+            title = getattr(video, "title", None) or url
+            print(f"Starting download for: {title}")
+            await video.download(configuration=config)
+            print(f"Download complete: {title}")
+        except Exception as e:
+            print(f"Error downloading {url}: {e}")
+
+
+def main():
+    try:
+        asyncio.run(run_main())
+    except KeyboardInterrupt:
+        print("\nOperation cancelled by user.")
+
+
+if __name__ == "__main__":
+    main()
+
