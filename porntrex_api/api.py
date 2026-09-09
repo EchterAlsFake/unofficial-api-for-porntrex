@@ -115,32 +115,117 @@ class Video(BaseMedia):
         html_content = await get_html_content(core=self.core, url=self.url)
         return await asyncio.to_thread(self._extract_data, html_content)
 
-    def _extract_data(self, html_content: str ) -> dict:
+    def _extract_data(self, html_content: str) -> dict:
         parser = LexborHTMLParser(html_content)
-        _video_metadata = parser.css_first("div.video-info").css_first("div.item")
 
+        # Layout anchors: 'div.video-info' and 'div.block-video' are expected on all video pages
+        if not parser.css_first("div.video-info") and not parser.css_first("div.block-video"):
+            logger.warning(
+                "Video container anchor ('div.video-info' / 'div.block-video') not found for %s; page layout may have changed.",
+                self.url,
+            )
+
+        json_data: dict = {}
         m = re.search(r"var\s+flashvars\s*=\s*({.*?})\s*;", html_content, re.S)
-        obj_literal = m.group(1)
-        json_data = json5.loads(obj_literal)
+        if m:
+            try:
+                json_data = json5.loads(m.group(1))
+            except Exception as e:
+                logger.warning("Failed to parse flashvars JSON for %s: %s", self.url, e)
+        else:
+            logger.warning("flashvars script block not found for %s; layout may have changed.", self.url)
 
-        title = json_data["video_title"]
-        video_id = json_data["video_id"]
-        categories = json_data["video_categories"].split(",")
-        tags = json_data["video_tags"].split(",")
-        license_code = json_data["license_code"]
-        lrc = json_data["lrc"]
-        rnd = json_data["rnd"]
-        author = parser.css_first("div.username").css_first("a").text(strip=True)
-        publish_date = _video_metadata.css_first("em").text(strip=True)
-        views = _video_metadata.css("em")[1].text(strip=True)
-        duration = _video_metadata.css("em")[2].text(strip=True)
-        description = parser.css_first("em.des-link").text(strip=True)
-        subscribers_count = parser.css_first("div.button-infow").text(strip=True)
-        image = json_data["preview_url"]
-        thumbnail = f"https:{image}"
+        # Title: flashvars -> HTML p.title-video
+        title = json_data.get("video_title")
+        if not title:
+            title_node = parser.css_first("p.title-video")
+            title = title_node.text(strip=True) if title_node else None
+        if not title:
+            logger.warning("Title not found for %s", self.url)
 
-        direct_download_urls = self.get_direct_download_urls(json_data)
-        video_qualities = self.get_video_qualities(json_data)
+        # Video ID: flashvars -> HTML input[name="video_id"] -> URL regex
+        video_id = json_data.get("video_id")
+        if not video_id:
+            vid_node = parser.css_first("input[name='video_id']")
+            if vid_node:
+                video_id = vid_node.attributes.get("value")
+            elif m_id := re.search(r"/video/(\d+)", self.url):
+                video_id = m_id.group(1)
+        if not video_id:
+            logger.warning("Video ID not found for %s", self.url)
+
+        # Categories: flashvars -> HTML .js-categories
+        if raw_cats := json_data.get("video_categories"):
+            categories = [c.strip() for c in raw_cats.split(",") if c.strip()]
+        else:
+            categories = [
+                a.text(strip=True)
+                for a in parser.css("div.js-categories a.js-cat")
+                if a.text(strip=True)
+            ]
+        if not categories:
+            logger.warning("Categories not found for %s", self.url)
+
+        # Tags: flashvars -> HTML tag links
+        if raw_tags := json_data.get("video_tags"):
+            tags = [t.strip() for t in raw_tags.split(",") if t.strip()]
+        else:
+            tags = [
+                a.text(strip=True)
+                for a in parser.css("div.items-holder a[href*='/tags/']")
+                if a.text(strip=True)
+            ]
+        if not tags:
+            logger.warning("Tags not found for %s", self.url)
+
+        license_code = json_data.get("license_code")
+        lrc = json_data.get("lrc")
+        rnd = json_data.get("rnd")
+
+        # Author: div.username a -> div.username
+        author_node = parser.css_first("div.username a") or parser.css_first("div.username")
+        author = author_node.text(strip=True) if author_node else None
+        if not author:
+            logger.warning("Author not found for %s", self.url)
+
+        # Metadata items (publish_date, views, duration): div.info-block div.item em
+        ems = parser.css("div.info-block div.item em") or parser.css("div.video-info div.item em")
+        publish_date = ems[0].text(strip=True) if len(ems) > 0 else None
+        views = ems[1].text(strip=True) if len(ems) > 1 else None
+        duration = ems[2].text(strip=True) if len(ems) > 2 else None
+        if not ems:
+            logger.warning("Metadata items (publish_date, views, duration) not found for %s", self.url)
+
+        # Description: em.des-link -> div.videodesc
+        desc_node = parser.css_first("em.des-link") or parser.css_first("div.videodesc .items-holder")
+        description = desc_node.text(strip=True) if desc_node else None
+        if not description:
+            logger.warning("Description not found for %s", self.url)
+
+        # Subscribers count: div.button-infow
+        sub_node = parser.css_first("div.button-infow")
+        subscribers_count = sub_node.text(strip=True) if sub_node else None
+        if not subscribers_count:
+            logger.warning("Subscribers count not found for %s", self.url)
+
+        # Thumbnail: flashvars preview_url -> poster/player img
+        image = json_data.get("preview_url")
+        if not image:
+            img_node = parser.css_first("div.fp-poster img") or parser.css_first("div.premium-player img")
+            if img_node:
+                image = img_node.attributes.get("src") or img_node.attributes.get("data-src")
+
+        if image:
+            thumbnail = f"https:{image}" if image.startswith("//") else image
+        else:
+            thumbnail = None
+            logger.warning("Thumbnail not found for %s", self.url)
+
+        pairs = self._collect_height_url_pairs(json_data)
+        video_qualities = [str(h) for h, _ in pairs]
+        direct_download_urls = [url for _, url in pairs]
+        if not direct_download_urls:
+            logger.warning("Direct download URLs not found for %s", self.url)
 
         return {
             "title": title,
@@ -158,7 +243,7 @@ class Video(BaseMedia):
             "subscribers_count": subscribers_count,
             "thumbnail": thumbnail,
             "direct_download_urls": direct_download_urls,
-            "video_qualities": video_qualities
+            "video_qualities": video_qualities,
         }
 
     @staticmethod
@@ -166,10 +251,10 @@ class Video(BaseMedia):
         """
         Try to get the numeric height from "<key>_text" first, then from the URL pattern.
         """
-        # 1) From "<key>_text" if present (e.g., "720p HD")
+        # 1) From "<key>_text" if present (e.g., "720p HD", "480p")
         label = json_data.get(f"{key}_text")
         if label:
-            m = PATTERN_RESOLUTION_TEXT.search(label)
+            m = PATTERN_RESOLUTION_TEXT.search(str(label))
             if m:
                 return int(m.group(1))
 
@@ -178,18 +263,10 @@ class Video(BaseMedia):
         if m:
             return int(m.group(1))
 
-        # 3) Special-case fallback: the base "video_url" sometimes lacks "_480p" in the URL;
-        #    use "video_url_text" if available.
-        if key == "video_url":
-            txt = json_data.get("video_url_text")
-            if txt:
-                m = PATTERN_RESOLUTION_TEXT.search(txt)
-                if m:
-                    return int(m.group(1))
-
         return None
 
-    def _collect_height_url_pairs(self, json_data: dict) -> list[tuple[int, str]]:
+    @classmethod
+    def _collect_height_url_pairs(cls, json_data: dict) -> list[tuple[int, str]]:
         """
         Build (height, url) pairs from the JSON payload.
         Only keeps valid .mp4 URLs that have a resolvable height.
@@ -204,42 +281,47 @@ class Video(BaseMedia):
             if not PATTERN_MP4.search(v):
                 continue
 
-            h = self._extract_height_for_key(k, v, json_data)
+            h = cls._extract_height_for_key(k, v, json_data)
             if h is not None:
-                by_height[h] = v
+                by_height[h] = f"https:{v}" if v.startswith("//") else v
 
         # Sort by ascending height
         return sorted(by_height.items(), key=lambda kv: kv[0])
 
-    def get_video_qualities(self, json_data: dict) -> list:
+    @classmethod
+    def get_video_qualities(cls, json_data: dict) -> list[str]:
         """
         :return: (list[str]) available qualities as e.g. ["480", "720", "1080", "2160"]
         """
-        pairs = self._collect_height_url_pairs(json_data)
-        heights = [str(h) for h, _ in pairs]
-        return heights
+        return [str(h) for h, _ in cls._collect_height_url_pairs(json_data)]
 
-    def get_direct_download_urls(self, json_data: dict) -> list:
+    @classmethod
+    def get_direct_download_urls(cls, json_data: dict) -> list[str]:
         """
         :return: (list[str]) direct MP4 URLs aligned in ascending order of quality.
                  Ordering matches the sorted `video_qualities`.
         """
-        pairs = self._collect_height_url_pairs(json_data)
-        urls = [url for _, url in pairs]
-        return urls
+        return [url for _, url in cls._collect_height_url_pairs(json_data)]
 
     async def download(self, configuration: DownloadConfigRAW) -> bool:
         try:
             await self.load_fields("direct_download_urls", "video_qualities", "title")
             config = copy.deepcopy(configuration)
-            cdn_urls = self.direct_download_urls
-            quals = self.video_qualities  # e.g., ["480", "720", "1080", "2160"]
+            cdn_urls = self.direct_download_urls or []
+            quals = self.video_qualities or []
+
+            if not cdn_urls or not quals:
+                logger.error("No download URLs or qualities available for %s", self.url)
+                raise DownloadFailed(f"No download URLs available for {self.url}")
 
             qn = normalize_quality_value(config.quality)
             chosen_height = choose_quality_from_list(quals, qn)
 
             quality_url_map = {int(q): url for q, url in zip(quals, cdn_urls)}
-            download_url = quality_url_map[chosen_height]
+            download_url = quality_url_map.get(chosen_height)
+            if not download_url:
+                logger.error("Chosen quality %s not found in available URLs for %s", chosen_height, self.url)
+                raise DownloadFailed(f"Quality {chosen_height} not found for {self.url}")
 
             if not config.no_title:
                 safe_title = f"{self.title}.mp4"
@@ -268,30 +350,46 @@ class ChannelModelHelper(BaseMedia):
         html_content = await get_html_content(core=self.core, url=self.url)
         return await asyncio.to_thread(self._extract_html, html_content)
 
-    @staticmethod
-    def _extract_html(html_content: str) -> dict:
+    def _extract_html(self, html_content: str) -> dict:
         parser = LexborHTMLParser(html_content)
-        _info_container = parser.css_first("div.sidebar").css_first("div.info")
 
-        name = parser.css_first("div.name").css_first("a").text(strip=True)
+        # Layout anchors: 'div.profile-model' and 'div.sidebar' are expected on channel/model pages
+        if not parser.css_first("div.profile-model") and not parser.css_first("div.sidebar"):
+            logger.warning(
+                "Channel/Model container anchor ('div.profile-model' / 'div.sidebar') not found for %s; page layout may have changed.",
+                self.url,
+            )
+
+        # Name: div.name a -> div.name h1 -> h1
+        name_node = parser.css_first("div.name a") or parser.css_first("div.name h1") or parser.css_first("h1")
+        name = name_node.text(strip=True) if name_node else None
+        if not name:
+            logger.warning("Channel/Model name not found for %s", self.url)
+
+        # Information: div.sidebar div.info -> div.info
         information = {}
+        info_container = parser.css_first("div.sidebar div.info") or parser.css_first("div.info")
+        if info_container:
+            for p in info_container.css("p"):
+                text = p.text().strip()
+                if ":" not in text:
+                    continue
+                parts = text.split(":", 1)
+                k = " ".join(parts[0].split())
+                v = " ".join(parts[1].split()) if "\n" in parts[1] else parts[1].strip()
+                if k and v:
+                    information[k] = v
+        else:
+            logger.warning("Information container ('div.sidebar div.info') not found for %s", self.url)
 
-        info_stuff = _info_container.css("p")
-        for p in info_stuff:
-            _list = p.text().split(":")
-            try:
-                information[_list[0]] = _list[1]
-
-            except IndexError:
-                break # No more useful data
-
-        try:
-            image = parser.css_first("div.profile-model-info").css_first("img").attributes.get("data-src")
-
-        except AttributeError:
-            image = parser.css_first("div.profile-model-info").css_first("img").attributes.get("src")
-
-        thumbnail = f"https:{image}"
+        # Thumbnail: div.profile-model-info img -> div.profile-model img
+        img_node = parser.css_first("div.profile-model-info img") or parser.css_first("div.profile-model img")
+        image = (img_node.attributes.get("data-src") or img_node.attributes.get("src")) if img_node else None
+        if image:
+            thumbnail = f"https:{image}" if image.startswith("//") else image
+        else:
+            thumbnail = None
+            logger.warning("Channel/Model thumbnail not found for %s", self.url)
 
         return {
             "name": name,
