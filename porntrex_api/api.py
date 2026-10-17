@@ -30,6 +30,9 @@ from base_api import (
 import argparse
 
 from porntrex_api.modules import errors as provider_errors
+from base_api import update_url_query
+from urllib.parse import urlsplit
+from base_api import profile_base_url
 from base_api.modules.provider import fetch_content, download_errors, prepare_download_config
 from base_api.modules.logger import configure_app_logging, get_logger
 from base_api.modules.static_functions import choose_quality_from_list, normalize_quality_value, str_to_bool
@@ -293,6 +296,10 @@ class Video(BaseMedia):
 
 @dataclass(kw_only=True, slots=True)
 class ChannelModelHelper(BaseMedia):
+
+    def __post_init__(self):
+        profile_base_url(self.url, depth=2)
+
     url: str
     core: BaseCore
     name: str | None = media_field("html")
@@ -357,8 +364,12 @@ class ChannelModelHelper(BaseMedia):
         pages: int = 2,
         iterator_config: IteratorConfig | None = None,
     ) -> AsyncGenerator[ScrapeResult[Video], None]:
-        url = self.url
-        page_urls = [f"{url}?mode=async&function=get_block&block_id=list_videos_common_videos_list_norm&sort_by=post_date&from={page:02d}&_=1761740123131" for page in range(pages)]
+        from urllib.parse import parse_qs
+        url = self.resolved_url or self.url
+        sort_by = parse_qs(urlsplit(url).query).get("sort_by", ["post_date"])[0]
+        page_urls = [update_url_query(url, mode="async", function="get_block",
+                     block_id="list_videos_common_videos_list_norm", sort_by=sort_by,
+                     **{"from": f"{page:02d}", "_": None}) for page in range(1, pages + 1)]
         return scrape_stream(
             core=self.core,
             constructor=Video,
