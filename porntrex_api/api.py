@@ -8,7 +8,7 @@ import logging
 from typing import AsyncGenerator, ClassVar
 from dataclasses import dataclass
 from selectolax.lexbor import LexborHTMLParser
-from base_api.modules.config import IteratorConfig
+from base_api.modules.config import IteratorConfig, RuntimeConfig
 from base_api import (
     BaseCore,
     BaseMedia,
@@ -31,7 +31,7 @@ import argparse
 
 from porntrex_api.modules import errors as provider_errors
 from base_api import update_url_query
-from urllib.parse import urlsplit
+from urllib.parse import urlsplit, quote
 from base_api import profile_base_url
 from base_api.modules.provider import fetch_content, download_errors, prepare_download_config
 from base_api.modules.logger import configure_app_logging, get_logger
@@ -420,7 +420,10 @@ class Client:
         pages: int = 2,
         iterator_config: IteratorConfig | None = None,
     ) -> AsyncGenerator[ScrapeResult[Video], None]:
-        page_urls = [f"https://www.porntrex.com/search/{query}/?mode=async&function=get_block&block_id=list_videos_videos&q={query}&category_ids=&sort_by=relevance&from={page:02d}&_=1761771312451" for page in range(pages)]
+        base_url = f"https://www.porntrex.com/search/{quote(query, safe='')}/"
+        page_urls = [update_url_query(base_url, mode="async", function="get_block",
+                     block_id="list_videos_videos", q=query, category_ids="", sort_by="relevance",
+                     **{"from": f"{page:02d}"}) for page in range(1, pages + 1)]
         return scrape_stream(
             core=self.core,
             constructor=Video,
@@ -459,18 +462,21 @@ async def run_main(args_list: list[str] | None = None):
         parser.print_help()
         return
 
-    client = Client()
-    for url in urls:
-        print(f"Fetching video information for: {url}")
-        try:
-            video = await client.get_video(url, load_html=True)
-            title = getattr(video, "title", None) or url
-            print(f"Starting download for: {title}")
-            await video.download(configuration=config)
-            print(f"Download complete: {title}")
-        except Exception as e:
-            logger.exception("CLI failed while processing %s", url)
-            print(f"Error downloading {url}: {e}")
+    async with BaseCore(RuntimeConfig()) as core:
+        client = Client(core=core)
+        for url in urls:
+            print(f"Fetching video information for: {url}")
+            try:
+                video = await client.get_video(url, load_html=True)
+                title = getattr(video, "title", None) or url
+                print(f"Starting download for: {title}")
+                result = await video.download(configuration=config)
+                if result is False or getattr(result, "status", None) == "failed":
+                    raise DownloadFailed("Download did not complete")
+                print(f"Download complete: {title}")
+            except Exception as e:
+                logger.exception("CLI failed while processing %s", url)
+                print(f"Error downloading {url}: {e}")
 
 
 def main():
