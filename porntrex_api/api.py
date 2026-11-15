@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+from base_api import paginated_stream, PageInfo, validate_pagination
+from base_api.modules.pagination import linked_page, http_status_is
+from urllib.parse import parse_qs
+
 import re
 import json5
 import asyncio
@@ -361,21 +365,37 @@ class ChannelModelHelper(BaseMedia):
 
     def videos(
         self,
-        pages: int = 2,
+        pages: int | str = 1,
         iterator_config: IteratorConfig | None = None,
+        *,
+        start_page: int = 1,
     ) -> AsyncGenerator[ScrapeResult[Video], None]:
+        validate_pagination(pages, start_page)
         from urllib.parse import parse_qs
+
         url = self.resolved_url or self.url
         sort_by = parse_qs(urlsplit(url).query).get("sort_by", ["post_date"])[0]
-        page_urls = [update_url_query(url, mode="async", function="get_block",
-                     block_id="list_videos_common_videos_list_norm", sort_by=sort_by,
-                     **{"from": f"{page:02d}", "_": None}) for page in range(1, pages + 1)]
-        return scrape_stream(
+        page_url = lambda page: update_url_query(
+            url,
+            mode="async",
+            function="get_block",
+            block_id="list_videos_common_videos_list_norm",
+            sort_by=sort_by,
+            **{"from": f"{page:02d}", "_": None},
+        )
+        return paginated_stream(
             core=self.core,
             constructor=Video,
-            target_page_urls=page_urls,
             item_extractor=extractor_html,
             iterator_config=iterator_config,
+            page_url=page_url,
+            pages=pages,
+            start_page=start_page,
+            page_info=lambda content, page, rows: _pagination_info(
+                content, page, rows, page_url=page_url
+            ),
+            verify_first=True,
+            terminal_error=lambda error, page: page > 1 and http_status_is(error, 404),
         )
 
 
@@ -417,21 +437,51 @@ class Client:
     def search(
         self,
         query: str,
-        pages: int = 2,
+        pages: int | str = 1,
         iterator_config: IteratorConfig | None = None,
+        *,
+        start_page: int = 1,
     ) -> AsyncGenerator[ScrapeResult[Video], None]:
+        validate_pagination(pages, start_page)
         base_url = f"https://www.porntrex.com/search/{quote(query, safe='')}/"
-        page_urls = [update_url_query(base_url, mode="async", function="get_block",
-                     block_id="list_videos_videos", q=query, category_ids="", sort_by="relevance",
-                     **{"from": f"{page:02d}"}) for page in range(1, pages + 1)]
-        return scrape_stream(
+        page_url = lambda page: update_url_query(
+            base_url,
+            mode="async",
+            function="get_block",
+            block_id="list_videos_videos",
+            q=query,
+            category_ids="",
+            sort_by="relevance",
+            **{"from": f"{page:02d}"},
+        )
+        return paginated_stream(
             core=self.core,
             constructor=Video,
-            target_page_urls=page_urls,
             item_extractor=extractor_html,
             iterator_config=iterator_config,
+            page_url=page_url,
+            pages=pages,
+            start_page=start_page,
+            page_info=lambda content, page, rows: _pagination_info(
+                content, page, rows, page_url=page_url
+            ),
+            verify_first=True,
+            terminal_error=lambda error, page: page > 1 and http_status_is(error, 404),
         )
 
+
+def _pagination_info(content, page, rows, *, page_url):
+    parser = LexborHTMLParser(content)
+    block = parse_qs(urlsplit(page_url(page)).query)["block_id"][0]
+    root = parser.css_first("#" + block)
+    if root is None:
+        raise ValueError("Expected KVS listing block missing")
+    for node in root.css("[data-parameters]"):
+        params = node.attributes.get("data-parameters", "")
+        match = re.search(r"(?:^|;)from:(\d+)(?:;|$)", params)
+        if match and int(match[1]) == page + 1:
+            return PageInfo(terminal=False, next_url=page_url(page + 1))
+    return PageInfo(terminal=True)
 
 
 def create_parser() -> argparse.ArgumentParser:
@@ -489,3 +539,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+

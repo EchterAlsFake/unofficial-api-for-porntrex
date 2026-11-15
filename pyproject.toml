@@ -4,7 +4,7 @@ build-backend = "uv_build"
 
 [project]
 name = "unofficial-api-for-porntrex"
-version = "1.8.3"
+version = "2.0.0"
 description = "An asynchronous Python API wrapper and scraper for porntrex.com"
 readme = { file = "README.md", content-type = "text/markdown" }
 requires-python = ">=3.12"
@@ -24,7 +24,7 @@ keywords = [
     "porntrex"
 ]
 dependencies = [
-    "eaf-base-api>=4.2.5",
+    "eaf-base-api>=4.3.0",
     "json5",
     "selectolax",
 ]

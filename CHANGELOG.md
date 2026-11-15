@@ -1,3 +1,18 @@
+# 2.0.0
+
+Release 2.0.0
+
+Update pagination handling, validation, and documentation.
+
+Changes since 1.8.3:
+
+```text
+README.md           | 14 ++++++++++
+ porntrex_api/api.py | 75 ++++++++++++++++++++++++++++++++++++++++++++---------
+ pyproject.toml      |  4 +--
+ 3 files changed, 79 insertions(+), 14 deletions(-)
+```
+
 # Changelog
 
 ## 1.8.3 — 2026-10-27
